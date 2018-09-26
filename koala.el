@@ -44,6 +44,11 @@ N.B. Only the replaced `%s' will get propertised with a face."
   :group 'koala
   :type 'string)
 
+(defcustom koalarc-file ".koalarc.json"
+  "The file name of the koala config used for execution."
+  :group 'koala
+  :type 'string)
+
 (defconst koala--symbol " 🐨 "
   "The string to split output on to distinguish results from compilation meta data.")
 
@@ -116,14 +121,22 @@ N.B. Only the replaced `%s' will get propertised with a face."
 B & E are the start and end positions of the change
 about to happen."
   (save-excursion
-    (message "%s:%s" b e)
     (let ((beg (koala--start b))
           (end (koala--end e)))
       (remove-overlays beg end 'category koala-category))))
 
-(defvar example-shell-command "cd ~/workspace/koala; babel --plugins=../src/index.js test/_input.js --out-file test/_output.js; KOALA=true ./koala.sh test/_output.js")
-(add-to-list 'before-change-functions 'koala--before-change-f)
-(remove 'koala--before-change-f before-change-functions)
+(defun koala--on-save-f ()
+  (when (buffer-file-name)
+    (let* ((file (buffer-file-name))
+           (conf (format "%s/%s" (locate-dominating-file file koalarc-file) koalarc-file))
+           (result (shell-command-to-string (format "koala %s --config %s" buffer-file-name conf))))
+      (koala--make-overlays result)))
+  )
+
+(defun koala-mode ()
+  (interactive)
+  (add-hook 'after-save-hook 'koala--on-save-f)
+  (add-to-list 'before-change-functions 'koala--before-change-f))
 
 (provide 'koala)
 ;;; koala.el ends here
