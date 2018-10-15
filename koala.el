@@ -23,6 +23,7 @@
 ;;; Commentary:
 
 ;;; Code:
+(require 'async)
 (require 'dash)
 (require 's)
 
@@ -48,6 +49,11 @@ N.B. Only the replaced `%s' will get propertised with a face."
   "The file name of the koala config used for execution."
   :group 'koala
   :type 'string)
+
+(defcustom koala-modes '(js2-mode js-mode javascript-mode web-mode rjsx-mode)
+  "List of major modes that `koala' supports running in."
+  :group 'koala
+  :type 'list)
 
 (defconst koala--symbol " 🐨 "
   "The string to split output on to distinguish results from compilation meta data.")
@@ -94,10 +100,13 @@ N.B. Only the replaced `%s' will get propertised with a face."
       (overlay-put o 'category koala-category)
       (overlay-put o 'after-string o-result))))
 
-(defun koala--make-overlays (text)
-  "Split input TEXT into lines and create overlays."
-  (koala-clear)
-  (-map 'koala--make-overlay (-reject 's-blank? (split-string text "\n")))
+(defun koala--make-overlays (text &optional buffer)
+  "Split input TEXT into lines and create overlays.
+Create overlays in BUFFER or `current-buffer'"
+  (with-current-buffer
+      (or buffer (current-buffer))
+    (koala-clear)
+    (-map 'koala--make-overlay (-reject 's-blank? (split-string text "\n"))))
   t)
 
 ;; Interactive mode methods
@@ -126,12 +135,18 @@ about to happen."
       (remove-overlays beg end 'category koala-category))))
 
 (defun koala--on-save-f ()
-  (when (buffer-file-name)
-    (let* ((file (buffer-file-name))
-           (conf (format "%s/%s" (locate-dominating-file file koalarc-file) koalarc-file))
-           (result (shell-command-to-string (format "koala %s --config %s" buffer-file-name conf))))
-      (koala--make-overlays result)))
-  )
+  (when (and (buffer-file-name)
+             (member major-mode koala-modes))
+    (let ((buf (current-buffer)))
+      (async-start
+       `(lambda ()
+          (let* ((conf (format "%s%s"
+                               ,(locate-dominating-file (buffer-file-name) koalarc-file )
+                               ,koalarc-file))
+                 (cmd (format "koala %s --config %s" ,(buffer-file-name) conf)))
+            (shell-command-to-string cmd)))
+       `(lambda (result)
+          (koala--make-overlays result ,buf))))))
 
 (defun koala-mode ()
   (interactive)
